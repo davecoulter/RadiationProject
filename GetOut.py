@@ -3,7 +3,6 @@ from scipy import constants
 import scipy.integrate
 import scipy.interpolate
 import matplotlib.pyplot as plt
-%matplotlib inline
 plt.rc('text', usetex=True)
 from mpmath import hyp2f1, factorial, gamma
 import functools
