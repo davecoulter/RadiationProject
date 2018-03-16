@@ -126,6 +126,7 @@ def emissivity_free_free(Z, T, nu):
     return 1 / 2 / np.pi * prefactor * temp2 * term
 
 
+@functools.lru_cache(maxsize=2048)
 def G_l(l, m, eta, rho):
     """G matrix element, radial-dipole integral"""
     gl = 0
@@ -219,6 +220,7 @@ def sigma_bf_n(n, Z, nu):
     return sbf / n**2
 
 
+@functools.lru_cache(maxsize=2048)
 def gaunt_bound_free_nl(nu, n, l, Z):
     """ratio of the cross section for bound-free absorption from 
     a bound state (n, l) to a free (continuum) state E with 
