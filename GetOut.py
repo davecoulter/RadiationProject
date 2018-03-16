@@ -253,15 +253,25 @@ def sigma_bf_n(n, Z, nu):
 
 
 def gamma_fb_n(n, Z, nu, T):
-    """emission coefficient of single-shell bound-free transition for 
+    """emission coefficient of single-shell bound-free transition for
     an ensemble of electrons at temperature T"""
+    I_n = Z**2 * Ry_in_erg / n**2
+    E = h*nu
+    if E < I_n:
+        return 0
+    else:
+        epsilon = h * nu / Z**2 / Ry_in_erg - 1/n**2
+        pre = 7.907e-18 * (n / Z**2) * (1 + n**2 * epsilon)**(-3)
+        g = gaunt_bound_free_n(nu, n, Z)
+        
     A = (2 / np.pi)**.5
-    B = np.exp(Z**2 * Ry_in_erg / n**2 / kb / T) /         c**2 / (m_e * kb * T)**(3 / 2)
+    B = np.exp(I_n / kb / T) / \
+        c**2 / (m_e * kb * T)**(3 / 2)
     C = 2 * n**2 * h * (h * nu)**3
-    D = sigma_bf_n(n, Z, nu)
+
     E = np.exp(-h * nu / kb / T)
 
-    return A * B * C * D * E
+    return A * B * C * pre*g * E
 
 
 # In[13]:
