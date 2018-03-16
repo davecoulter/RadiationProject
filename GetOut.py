@@ -1,14 +1,9 @@
-
-# coding: utf-8
-
-# In[1]:
-
-
 import numpy as np
 from scipy import constants
 import scipy.integrate
+import scipy.interpolate
 import matplotlib.pyplot as plt
-get_ipython().magic('matplotlib inline')
+%matplotlib inline
 plt.rc('text', usetex=True)
 from mpmath import hyp2f1, factorial, gamma
 import functools
@@ -20,9 +15,6 @@ h = constants.value('Planck constant') * 1e7  # in ergs s
 c = constants.c * 1.e2  # in cm/s
 e_e = 4.80320451e-10  # in statcoulomb
 m_e = constants.electron_mass * 1e3  # in g
-
-
-# In[2]:
 
 
 def I(eta_i, eta_f, k_i, k_f, l):
@@ -56,9 +48,6 @@ def G(eta_i, eta_f, k_i, k_f, l):
     return (temp1 * temp2).real
 
 
-# In[3]:
-
-
 def gaunt_free_free(Z, beta, E):
     """calculate the Gaunt factor for free-free emission
 
@@ -85,9 +74,6 @@ def gaunt_free_free(Z, beta, E):
     return out.real
 
 
-# In[4]:
-
-
 def free_free_emission_spectrum(Z, hnu, E):
     """calculate free-free spectrum
 
@@ -99,9 +85,6 @@ def free_free_emission_spectrum(Z, hnu, E):
         return 0.
     g_ff = gaunt_free_free(Z, fsc * (2 * (E - hnu))**.5, hnu)
     return 64 * np.pi**2 / 3 / 3**.5 * Z**2 * fsc**3 / (2 * E)**.5 * g_ff
-
-
-# In[5]:
 
 
 def free_free_thermal_spectrum(Z, T, E):
@@ -122,16 +105,11 @@ def free_free_thermal_spectrum(Z, T, E):
     return out
 
 
-# In[73]:
-
-
-def emissivity_free_free(Z, Ni, Ne, T, nu):
+def emissivity_free_free(Z, T, nu):
     """calculate emissivity of free free emission
 
     Arguments:
     Z    : ion charge, int
-    Ni   : ion density, in cm^-3
-    Ne   : electron density, in cm^-3
     T    : temperature of electrons, in K
     nu   : frequency, in Hz
     """
@@ -146,10 +124,7 @@ def emissivity_free_free(Z, Ni, Ne, T, nu):
 
     prefactor = 2**5 * np.pi * Z**2 * e_e**6 / 3 / m_e / c**3
     temp2 = (2 * np.pi / 3 / kb / m_e / T)**.5
-    return prefactor * temp2 * term
-
-
-# In[9]:
+    return 1 / 2 / np.pi * prefactor * temp2 * term
 
 
 def G_l(l, m, eta, rho):
@@ -175,9 +150,6 @@ def b_s(s, l, m, eta, rho):
     return bs
 
 
-# In[10]:
-
-
 def sigma_minus(n, l, E, Z):
     """Cross section for bound-free absorption from (n, l) through
     dipole transition to E with angular momentum l-1"""
@@ -195,7 +167,8 @@ def sigma_minus(n, l, E, Z):
     A = 1
     for l_i in range(1, l):
         A *= (l_i**2 + eta**2)
-    B = l**2 * factorial(n + l) / factorial(2 * l + 1) /         factorial(2 * l - 1) / factorial(n - l - 1)
+    B = l**2 * factorial(n + l) / factorial(2 * l + 1) / \
+        factorial(2 * l - 1) / factorial(n - l - 1)
     C = np.exp(-4 * eta * np.arctan2(1, rho)) / (1 - np.exp(-2 * np.pi * eta))
     D = rho**(2 * l + 2) / (1 + rho**2)**(2 * n - 2)
     E = (GlA - (1 + rho**2)**(-2) * GlB)**2
@@ -216,7 +189,8 @@ def sigma_plus(n, l, E, Z):
     A = 1
     for l_i in range(l + 1):
         A *= ((l_i + 1)**2 + eta**2)
-    B = (l + 1)**2 * factorial(n + l) / (2 * l + 1) / factorial(2 * l + 1) /         factorial(2 * l + 2) / factorial(n - l - 1) / ((l + 1)**2 + eta**2)**2
+    B = (l + 1)**2 * factorial(n + l) / (2 * l + 1) / factorial(2 * l + 1) / \
+        factorial(2 * l + 2) / factorial(n - l - 1) / ((l + 1)**2 + eta**2)**2
 
     C = np.exp(-4 * eta * np.arctan2(1, rho)) / (1 - np.exp(-2 * np.pi * eta))
     D = rho**(2 * l + 4) * eta**2 / (1 + rho**2)**(2 * n)
@@ -224,10 +198,7 @@ def sigma_plus(n, l, E, Z):
     return prefactor * A * B * C * D * E
 
 
-# In[11]:
-
-
-@functools.lru_cache(maxsize=1024)
+@functools.lru_cache(maxsize=2048)
 def sigma_bf_nl(n, l, nu, Z):
     """Bound-free cross section for absorption from (n, l) through
     dipole transition to E with angular momenta l+-1"""
@@ -236,34 +207,85 @@ def sigma_bf_nl(n, l, nu, Z):
     return sigma_plus(n, l, h * nu, Z) + sigma_minus(n, l, h * nu, Z)
 
 
-@functools.lru_cache(maxsize=1024)
+@functools.lru_cache(maxsize=2048)
 def sigma_bf_n(n, Z, nu):
     """angular momentum-average Bound-free cross section from 
     n through dipole transition to E with """
     if h * nu < Z**2 * Ry_in_erg / n**2:
         return 0.
+    sbf = 0
+    for l in range(n):
+        sbf += (2 * l + 1) * sigma_bf_nl(n, l, nu, Z)
+
+    return sbf / n**2
+
+
+def gaunt_bound_free_nl(nu, n, l, Z):
+    """ratio of the cross section for bound-free absorption from 
+    a bound state (n, l) to a free (continuum) state E with 
+    unpolarized photon E_ph and the Kramers' semi-classical 
+    bound-free cross section
+
+    Arguments:
+    n    : Principal quantum number
+    l    : Azimuthal quantum number
+    nu   : frequency of unpolarized photon
+    Z    : ionization state
+
+    Returns:
+    g_bf : (n,l,nu) Gaunt factor for bound-free transitions
+    """
+    if h * nu < Z**2 * Ry_in_erg / n**2:
+        return 0.
+    sp = sigma_plus(n, l, h * nu, Z)
+    sm = sigma_minus(n, l, h * nu, Z)
+    sK = sigma_K(n, h * nu, Z)
+    return (sp + sm) / sK
+
+
+def sigma_K(n, E, Z):
+    """Kramers' semi-classical bound-free cross section"""
+    eta = (Z**2 * Ry_in_erg / E)**.5
+    rho = eta / n
+    nu = E / h
+    return 2.**4 / 3. / 3.**.5 * (e_e**2 / m_e / c / nu) / n * (rho**2 / (1 + rho**2))**2
+
+
+def gaunt_bound_free_n(nu, n, Z):
+    """ratio of the cross section for bound-free absorption from 
+    a l-averaged bound states n to a free (continuum) state E with 
+    unpolarized photon E_ph and the Kramers' semi-classical 
+    bound-free cross section
+
+    Arguments:
+    n    : Principal quantum number
+    nu   : frequency of unpolarized photon
+    Z    : ionization state
+
+    Returns:
+    g_bf : (n, nu) Gaunt factor for bound-free transitions
+    """
+    if h * nu < Z**2 * Ry_in_erg / n**2:
+        return 0.
     gbf = 0
     for l in range(n):
-        gbf += (2 * l + 1) * sigma_bf_nl(n, l, nu, Z)
+        gbf += (2 * l + 1) * gaunt_bound_free_nl(nu, n, l, Z)
 
     return gbf / n**2
-
-
-# In[12]:
 
 
 def gamma_fb_n(n, Z, nu, T):
     """emission coefficient of single-shell bound-free transition for
     an ensemble of electrons at temperature T"""
     I_n = Z**2 * Ry_in_erg / n**2
-    E = h*nu
+    E = h * nu
     if E < I_n:
         return 0
     else:
-        epsilon = h * nu / Z**2 / Ry_in_erg - 1/n**2
+        epsilon = h * nu / Z**2 / Ry_in_erg - 1 / n**2
         pre = 7.907e-18 * (n / Z**2) * (1 + n**2 * epsilon)**(-3)
         g = gaunt_bound_free_n(nu, n, Z)
-        
+
     A = (2 / np.pi)**.5
     B = np.exp(I_n / kb / T) / \
         c**2 / (m_e * kb * T)**(3 / 2)
@@ -271,187 +293,98 @@ def gamma_fb_n(n, Z, nu, T):
 
     E = np.exp(-h * nu / kb / T)
 
-    return A * B * C * pre*g * E
+    return A * B * C * pre * g * E
 
 
-# In[13]:
-
-
-def j_nu_fb(n, Z, nu, T, n_i, n_e):
+def emissivity_bound_free(n, Z, nu, T):
     """emission coefficient of shell-sum bound-free transition"""
     return sum([gamma_fb_n(i, Z, nu, T) for i in range(1, n)])
 
 
-# In[16]:
+nu_table = (10**14) * np.array([1e-26, 1.23, 2.47, 3.70,
+                                4.93, 6.17, 7.40, 8.64, 9.87, 11.10, 12.34])  # 10^14 Hz
+nug_nu = (10**-12) * np.array([0, 0.0373, 0.242,
+                               0.679, 1.37, 2.33, 3.55, 5.01, 6.69, 8.59, 10.6])
+
+g_nu = nug_nu / nu_table
+# Interpolate points on table.
+gnu_interp = scipy.interpolate.interp1d(nu_table, g_nu, kind='cubic')
 
 
-# test2 = []
-# test3 = []
-# for nu in np.logspace(np.log10(3e13), np.log10(3e15), 400):
-#     test2.append(nu * 1 / 2 / np.pi * emissivity_free_free(1, 1, 1, 10000, nu))
-#     test3.append(nu * j_nu_fb(20, 1, nu, 10000, 1e4, 1e4))
+alpha_eff = 0.838e-13  # cm^3 * s^-1
+A_2 = 8.23  # s^-1
+q_p = 2.51e-4 + 2.23e-4  # cm^3 * s^-1
+q_e = 0.22e-4 + 0.35e-4  # cm^3 * s^-1
+nu_12 = 2 * 1.234e15
 
 
-# # In[17]:
-
-
-# plt.loglog(3e14 / np.logspace(np.log10(3e13), np.log10(3e15), 400),
-#            np.array(test2), alpha=.5)
-# plt.loglog(3e14 / np.logspace(np.log10(3e13), np.log10(3e15), 400),
-#            np.pi * np.array(test3), alpha=.5)
-# plt.loglog(3e14 / np.logspace(np.log10(3e13), np.log10(3e15), 400),
-#            np.array(test2) + np.pi * np.array(test3))
-
-# plt.ylim(1e-26, 1e-23)
-# plt.ylabel(r'\nu \gamma_{\nu} (ergs \, cm^{-3}s^{-1})')
-# plt.xlabel('Wavelength (micron)')
-
-
-# In[18]:
-
-
-import scipy.interpolate
-nu_table=(10**14)*np.array([1E-26,1.23,2.47,3.70,4.93,6.17,7.40,8.64,9.87,11.10,12.34]) #10^14 Hz
-nug_nu=(10**-12)*np.array([0,0.0373,0.242,0.679,1.37,2.33,3.55,5.01,6.69,8.59,10.6])
-
-g_nu=nug_nu/nu_table
-#Interpolate points on table.
-gnu_interp=scipy.interpolate.interp1d(nu_table,g_nu,kind='cubic')
-
-
-# In[19]:
-
-
-alpha_eff=0.838E-13 #cm^3 * s^-1
-A_2= 8.23 #s^-1
-q_p=2.51E-4 + 2.23E-4 #cm^3 * s^-1
-q_e=0.22E-4 + 0.35E-4 #cm^3 * s^-1
-nu_12=2*1.234E15
-
-
-# In[20]:
-
-
-def gamma_nu(nu_arr, n_p, n_e):
-    gammas=[]
-    denom=1+((n_p*q_p+n_e*q_p)/A_2)
-    for nu in nu_arr: 
-        if nu <= nu_12/2:
-            g_nu=gnu_interp(nu)
-            gammas.append((alpha_eff)*g_nu/denom)
-        elif nu > nu_12/2:
-            if nu_12-nu < (10**14*1E-26):
+def emissivity_2photon(nu_arr, n_p, n_e):
+    """equation 4.29 in Osterbrock and Ferland 2nd edition"""
+    gammas = []
+    denom = 1 + ((n_p * q_p + n_e * q_p) / A_2)
+    for nu in nu_arr:
+        if nu <= nu_12 / 2:
+            g_nu = gnu_interp(nu)
+            gammas.append((alpha_eff) * g_nu / denom)
+        elif nu > nu_12 / 2:
+            if nu_12 - nu < (10**14 * 1E-26):
                 gammas.append(0)
             else:
-                g_nu2=(nu/(nu_12-nu))*gnu_interp(nu_12-nu)
-                gammas.append((alpha_eff)*g_nu2/denom)
-            
+                g_nu2 = (nu / (nu_12 - nu)) * gnu_interp(nu_12 - nu)
+                gammas.append((alpha_eff) * g_nu2 / denom)
     return gammas
-
-
-# In[21]:
-
-
-nu_arr=np.logspace(np.log10(1.23E14),np.log10(2.467e15),200)
-gamma_nu_arr=gamma_nu(nu_arr,0,0)
-
-
-# In[22]:
-
-
-# plt.loglog(3E14/np.logspace(np.log10(1.23e14),np.log10(2.467e15),200), nu_arr*gamma_nu_arr)
-# plt.ylabel(r'$\nu \gamma_{\nu} (erg cm^{-3}s^{-1})$')
-# plt.ylim(1e-26,1e-23)
-# plt.xlim(0.1,10)
-# plt.xlabel('Wavelength (micron)')
-
-
-# In[23]:
 
 
 alpha_B = 2.6e-13 #cm^3 s^-1 for 10^4K only!
 
 
-# In[88]:
-
-
 def nebular_continuum_emission(n, Z, nu, T, n_i, n_e, f_esc, N_LyC):
-    j_fb = np.pi*j_nu_fb(n, Z, nu, T, n_i, n_e)
-    j_ff = 1/2/np.pi*emissivity_free_free(Z, n_i, n_e, T, nu)
-    j_2q = gamma_nu([nu], n_i, n_e)[0]
-    return (j_fb + j_ff + j_2q) / alpha_B * (1 - f_esc) * N_LyC
-
-
-# In[30]:
-
-
-# plt.loglog(3e14 / np.logspace(np.log10(3e13), np.log10(3e15), 400),
-#            np.array(test2) + np.pi * np.array(test3), 'k')
-# plt.loglog(3E14/np.logspace(np.log10(1.23e14),np.log10(2.467e15),200), nu_arr*gamma_nu_arr, 'k',alpha=.3)
-# plt.ylim(1e-26, 1e-23)
-# plt.ylabel(r'\nu \gamma_{\nu} (ergs \, cm^{-3}s^{-1})')
-# plt.xlabel('Wavelength (micron)')
-
-
-# In[106]:
+    """equation 3 in Ono 2010"""
+    g_fb = emissivity_bound_free(n, Z, nu, T)
+    g_ff = emissivity_free_free(Z, T, nu)
+    g_2q = emissivity_2photon([nu], n_i, n_e)[0]
+    return (g_fb + g_ff + g_2q) / alpha_B * (1 - f_esc) * N_LyC
 
 
 def hbeta_line_luminosity(fesc, N_LyC):
-    return 4.78e-13 * (1-fesc) * N_LyC
+    """equation 2 from Ono 2010"""
+    return 4.78e-13 * (1 - fesc) * N_LyC
 
-def compute(fluxhbeta): 
-    ratios=np.genfromtxt("ratios_10.dat")
-    waves0, intensities, references=ratios[:,0], ratios[:,1], ratios[:,2]
-    nu0 = 3e18 / waves0
+
+def compute(fluxhbeta):
+    """calculate fluxes of Hydrogen line emission"""
+    ratios = np.genfromtxt("ratios_10.dat")
+    waves0, intensities, references = ratios[:, 0], ratios[:, 1], ratios[:, 2]
+    nu0 = c * 1e8 / waves0
     intensities *= references
     intensities *= fluxhbeta
-    
+
     return waves0 / 10000, intensities / nu0
 
 
-# In[117]:
-
-
-nus = np.concatenate(([3e14 / compute(hbeta_line_luminosity(0,1e52))[0],np.logspace(np.log10(1.23e14),np.log10(2.467e15),400)]))
-
-
-# In[145]:
-
-
 def get_spectrum(n, Z, T, n_i, n_e, f_esc, N_LyC, waves):
+    """
+    Arguments:
+    n    :   Maximum principal quantum number, int
+    Z    :   ion charge, int
+    T    :   temperature, K
+    n_i  :   ion number density, cm^-3
+    n_e  :   electron number density, cm^-3
+    f_esc:   escape fraction, float
+    N_LyC:   rate of Lyman Continuum photons, float
+    waves:   wavelength array, in microns"""
     fluxhbeta = hbeta_line_luminosity(f_esc, N_LyC)
     wave0, lnu0 = compute(fluxhbeta)
     lnu0 = np.concatenate([lnu0, np.zeros(len(waves))])
     wavelengths = np.concatenate([wave0, waves])
-    
-    spec = [nebular_continuum_emission(n, Z, nu, T, n_i, n_e, f_esc, N_LyC) for nu in 3e14 / wavelengths]
+
+    spec = [nebular_continuum_emission(
+        n, Z, nu, T, n_i, n_e, f_esc, N_LyC) for nu in 3e14 / wavelengths]
     idx = np.argsort(wavelengths)
     out = (spec + lnu0)[idx]
     outwave = wavelengths[idx]
     return outwave, out
 
-
-# In[146]:
-
-
-# waves, specs = get_spectrum(20, 1, 10000, 1e4, 1e2, 0, 1e52, np.linspace(.2, 2.4, 1000))
-
-
-# # In[147]:
-
-
-# plt.plot(waves, specs)
-# plt.ylabel(r'L_{\nu}\, [erg\,s^{-1} \,Hz^{-1}]')
-# plt.xlabel('Wavelength (microns)')
-
-
-# # In[149]:
-
-
-# np.savetxt('plot.txt', np.array([waves, specs]).T)
-
-
-# In[ ]:
 
 
 
